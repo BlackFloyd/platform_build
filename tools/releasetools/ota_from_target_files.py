@@ -64,11 +64,6 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       Generate an OTA package that will wipe the user data partition
       when installed.
 
-  -n  (--no_prereq)
-      Omit the timestamp prereq check normally included at the top of
-      the build scripts (used for developer OTA packages which
-      legitimately need to go back and forth).
-
   --downgrade
       Intentionally generate an incremental OTA that updates from a newer
       build to an older one (based on timestamp comparison). "post-timestamp"
@@ -113,6 +108,17 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       Generate a log file that shows the differences in the source and target
       builds for an incremental package. This option is only meaningful when
       -i is specified.
+
+  --payload_signer <signer>
+      Specify the signer when signing the payload and metadata for A/B OTAs.
+      By default (i.e. without this flag), it calls 'openssl pkeyutl' to sign
+      with the package private key. If the private key cannot be accessed
+      directly, a payload signer that knows how to do that should be specified.
+      The signer will be supplied with "-inkey <path_to_key>",
+      "-in <input_file>" and "-out <output_file>" parameters.
+
+  --payload_signer_args <args>
+      Specify the arguments needed for payload signer.
 """
 
 import sys
@@ -124,6 +130,7 @@ if sys.hexversion < 0x02070000:
 import multiprocessing
 import os
 import subprocess
+import shlex
 import tempfile
 import zipfile
 
@@ -139,7 +146,6 @@ OPTIONS.require_verbatim = set()
 OPTIONS.prohibit_verbatim = set(("system/build.prop",))
 OPTIONS.patch_threshold = 0.95
 OPTIONS.wipe_user_data = False
-OPTIONS.omit_prereq = False
 OPTIONS.downgrade = False
 OPTIONS.extra_script = None
 OPTIONS.aslr_mode = True
@@ -160,6 +166,8 @@ OPTIONS.cache_size = None
 OPTIONS.stash_threshold = 0.8
 OPTIONS.gen_verify = False
 OPTIONS.log_diff = None
+OPTIONS.payload_signer = None
+OPTIONS.payload_signer_args = []
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest
@@ -561,10 +569,9 @@ def WriteFullOTAPackage(input_zip, output_zip):
 
   metadata["ota-type"] = "BLOCK" if block_based else "FILE"
 
-  if not OPTIONS.omit_prereq:
-    ts = GetBuildProp("ro.build.date.utc", OPTIONS.info_dict)
-    ts_text = GetBuildProp("ro.build.date", OPTIONS.info_dict)
-    script.AssertOlderBuild(ts, ts_text)
+  ts = GetBuildProp("ro.build.date.utc", OPTIONS.info_dict)
+  ts_text = GetBuildProp("ro.build.date", OPTIONS.info_dict)
+  script.AssertOlderBuild(ts, ts_text)
 
   AppendAssertions(script, OPTIONS.info_dict, oem_dict)
   device_specific.FullOTA_Assertions()
@@ -1162,17 +1169,19 @@ def WriteABOTAPackageWithBrilloScript(target_file, output_file,
         "default_system_dev_certificate",
         "build/target/product/security/testkey")
 
-  # A/B updater expects key in RSA format.
-  cmd = ["openssl", "pkcs8",
-         "-in", OPTIONS.package_key + OPTIONS.private_key_suffix,
-         "-inform", "DER", "-nocrypt"]
-  rsa_key = common.MakeTempFile(prefix="key-", suffix=".key")
-  cmd.extend(["-out", rsa_key])
-  p1 = common.Run(cmd, stdout=log_file, stderr=subprocess.STDOUT)
-  p1.communicate()
-  assert p1.returncode == 0, "openssl pkcs8 failed"
+  # A/B updater expects a signing key in RSA format. Gets the key ready for
+  # later use in step 3, unless a payload_signer has been specified.
+  if OPTIONS.payload_signer is None:
+    cmd = ["openssl", "pkcs8",
+           "-in", OPTIONS.package_key + OPTIONS.private_key_suffix,
+           "-inform", "DER", "-nocrypt"]
+    rsa_key = common.MakeTempFile(prefix="key-", suffix=".key")
+    cmd.extend(["-out", rsa_key])
+    p1 = common.Run(cmd, stdout=log_file, stderr=subprocess.STDOUT)
+    p1.communicate()
+    assert p1.returncode == 0, "openssl pkcs8 failed"
 
-  # Stage the output zip package for signing.
+  # Stage the output zip package for package signing.
   temp_zip_file = tempfile.NamedTemporaryFile()
   output_zip = zipfile.ZipFile(temp_zip_file, "w",
                                compression=zipfile.ZIP_DEFLATED)
@@ -1229,21 +1238,29 @@ def WriteABOTAPackageWithBrilloScript(target_file, output_file,
   signed_metadata_sig_file = common.MakeTempFile(prefix="signed-sig-",
                                                  suffix=".bin")
   # 3a. Sign the payload hash.
-  cmd = ["openssl", "pkeyutl", "-sign",
-         "-inkey", rsa_key,
-         "-pkeyopt", "digest:sha256",
-         "-in", payload_sig_file,
-         "-out", signed_payload_sig_file]
+  if OPTIONS.payload_signer is not None:
+    cmd = [OPTIONS.payload_signer]
+    cmd.extend(OPTIONS.payload_signer_args)
+  else:
+    cmd = ["openssl", "pkeyutl", "-sign",
+           "-inkey", rsa_key,
+           "-pkeyopt", "digest:sha256"]
+  cmd.extend(["-in", payload_sig_file,
+              "-out", signed_payload_sig_file])
   p1 = common.Run(cmd, stdout=log_file, stderr=subprocess.STDOUT)
   p1.communicate()
   assert p1.returncode == 0, "openssl sign payload failed"
 
   # 3b. Sign the metadata hash.
-  cmd = ["openssl", "pkeyutl", "-sign",
-         "-inkey", rsa_key,
-         "-pkeyopt", "digest:sha256",
-         "-in", metadata_sig_file,
-         "-out", signed_metadata_sig_file]
+  if OPTIONS.payload_signer is not None:
+    cmd = [OPTIONS.payload_signer]
+    cmd.extend(OPTIONS.payload_signer_args)
+  else:
+    cmd = ["openssl", "pkeyutl", "-sign",
+           "-inkey", rsa_key,
+           "-pkeyopt", "digest:sha256"]
+  cmd.extend(["-in", metadata_sig_file,
+              "-out", signed_metadata_sig_file])
   p1 = common.Run(cmd, stdout=log_file, stderr=subprocess.STDOUT)
   p1.communicate()
   assert p1.returncode == 0, "openssl sign metadata failed"
@@ -1861,8 +1878,6 @@ def main(argv):
       OPTIONS.full_bootloader = True
     elif o in ("-w", "--wipe_user_data"):
       OPTIONS.wipe_user_data = True
-    elif o in ("-n", "--no_prereq"):
-      OPTIONS.omit_prereq = True
     elif o == "--downgrade":
       OPTIONS.downgrade = True
       OPTIONS.wipe_user_data = True
@@ -1905,12 +1920,16 @@ def main(argv):
       OPTIONS.gen_verify = True
     elif o == "--log_diff":
       OPTIONS.log_diff = a
+    elif o == "--payload_signer":
+      OPTIONS.payload_signer = a
+    elif o == "--payload_signer_args":
+      OPTIONS.payload_signer_args = shlex.split(a)
     else:
       return False
     return True
 
   args = common.ParseOptions(argv, __doc__,
-                             extra_opts="b:k:i:d:wne:t:a:2o:",
+                             extra_opts="b:k:i:d:we:t:a:2o:",
                              extra_long_opts=[
                                  "board_config=",
                                  "package_key=",
@@ -1918,7 +1937,6 @@ def main(argv):
                                  "full_radio",
                                  "full_bootloader",
                                  "wipe_user_data",
-                                 "no_prereq",
                                  "downgrade",
                                  "extra_script=",
                                  "worker_threads=",
@@ -1934,6 +1952,8 @@ def main(argv):
                                  "stash_threshold=",
                                  "gen_verify",
                                  "log_diff=",
+                                 "payload_signer=",
+                                 "payload_signer_args=",
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:
@@ -1949,8 +1969,7 @@ def main(argv):
     # Otherwise the device may go back from arbitrary build with this full
     # OTA package.
     if OPTIONS.incremental_source is None:
-      raise ValueError("Cannot generate downgradable full OTAs - consider"
-                       "using --omit_prereq?")
+      raise ValueError("Cannot generate downgradable full OTAs")
 
   # Load the dict file from the zip directly to have a peek at the OTA type.
   # For packages using A/B update, unzipping is not needed.
