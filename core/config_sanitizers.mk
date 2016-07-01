@@ -24,6 +24,31 @@ ifneq ($(my_global_sanitize),)
   my_sanitize := $(my_global_sanitize)
 endif
 
+# The sanitizer specified in the product configuration wins over the previous.
+ifneq ($(SANITIZER.$(TARGET_PRODUCT).$(LOCAL_MODULE).CONFIG),)
+  my_sanitize := $(SANITIZER.$(TARGET_PRODUCT).$(LOCAL_MODULE).CONFIG)
+  ifeq ($(my_sanitize),never)
+    my_sanitize :=
+  endif
+endif
+
+# Add a filter point for 32-bit vs 64-bit sanitization (to lighten the burden).
+SANITIZE_ARCH ?= 32 64
+ifeq ($(filter $(SANITIZE_ARCH),$(my_32_64_bit_suffix)),)
+  my_sanitize :=
+endif
+
+# Add a filter point based on module owner (to lighten the burden). The format is a space- or
+# colon-separated list of owner names.
+ifneq (,$(SANITIZE_NEVER_BY_OWNER))
+  ifneq (,$(LOCAL_MODULE_OWNER))
+    ifneq (,$(filter $(LOCAL_MODULE_OWNER),$(subst :, ,$(SANITIZE_NEVER_BY_OWNER))))
+      $(warning Not sanitizing $(LOCAL_MODULE) based on module owner.)
+      my_sanitize :=
+    endif
+  endif
+endif
+
 # Don't apply sanitizers to NDK code.
 ifdef LOCAL_SDK_VERSION
   my_sanitize :=
@@ -32,6 +57,11 @@ endif
 # Never always wins.
 ifeq ($(LOCAL_SANITIZE),never)
   my_sanitize :=
+endif
+
+my_nosanitize = $(strip $(LOCAL_NOSANITIZE))
+ifneq ($(my_nosanitize),)
+  my_sanitize := $(filter-out $(my_nosanitize),$(my_sanitize))
 endif
 
 # TSAN is not supported on 32-bit architectures. For non-multilib cases, make
@@ -50,17 +80,13 @@ endif
 # sanitized static libraries. That's OK, because the executable
 # always depends on the ASan runtime library, which defines these
 # symbols.
-ifneq ($(strip $(SANITIZE_TARGET)),)
+ifneq ($(filter address thread,$(strip $(SANITIZE_TARGET))),)
   ifndef LOCAL_IS_HOST_MODULE
     ifeq ($(LOCAL_MODULE_CLASS),SHARED_LIBRARIES)
       ifeq ($(my_sanitize),)
         my_allow_undefined_symbols := true
       endif
     endif
-    # Workaround for a bug in AddressSanitizer that breaks stack unwinding.
-    # https://code.google.com/p/address-sanitizer/issues/detail?id=387
-    # Revert when external/compiler-rt is updated past r236014.
-    LOCAL_PACK_MODULE_RELOCATIONS := false
   endif
 endif
 
@@ -96,7 +122,9 @@ ifneq ($(my_sanitize),)
       my_cflags += -fsanitize-trap=all
       my_cflags += -ftrap-function=abort
     endif
-    my_shared_libraries += libdl
+    ifneq ($(filter address thread,$(my_sanitize)),)
+      my_shared_libraries += libdl
+    endif
   endif
 endif
 
