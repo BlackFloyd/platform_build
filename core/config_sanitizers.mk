@@ -19,9 +19,8 @@ ifeq ($(my_clang),true)
   endif
 endif
 
-# The sanitizer specified by the environment wins over the module.
 ifneq ($(my_global_sanitize),)
-  my_sanitize := $(my_global_sanitize)
+  my_sanitize := $(my_global_sanitize) $(my_sanitize)
 endif
 
 # The sanitizer specified in the product configuration wins over the previous.
@@ -76,6 +75,12 @@ ifneq ($(filter thread,$(my_sanitize)),)
   endif
 endif
 
+ifneq ($(filter safe-stack,$(my_sanitize)),)
+  ifeq ($(my_32_64_bit_suffix),32)
+    my_sanitize := $(filter-out safe-stack,$(my_sanitize))
+  endif
+endif
+
 # Undefined symbols can occur if a non-sanitized library links
 # sanitized static libraries. That's OK, because the executable
 # always depends on the ASan runtime library, which defines these
@@ -118,11 +123,10 @@ ifneq ($(my_sanitize),)
     my_ldflags += -fsanitize=$(fsanitize_arg)
     my_ldlibs += -lrt -ldl
   else
-    ifeq ($(filter address,$(my_sanitize)),)
-      my_cflags += -fsanitize-trap=all
-      my_cflags += -ftrap-function=abort
-    endif
+    my_cflags += -fsanitize-trap=all
+    my_cflags += -ftrap-function=abort
     ifneq ($(filter address thread,$(my_sanitize)),)
+      my_cflags += -fno-sanitize-trap=address,thread
       my_shared_libraries += libdl
     endif
   endif
