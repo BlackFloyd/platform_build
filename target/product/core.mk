@@ -20,10 +20,11 @@
 # core_minimal.mk instead. If you care about wearables, you need to modify
 # core_tiny.mk in addition to core_minimal.mk.
 
+# Modified by the Crimson Android project
+
 PRODUCT_PACKAGES += \
     BasicDreams \
     BookmarkProvider \
-    Browser2 \
     Calendar \
     CalendarProvider \
     CaptivePortalLogin \
@@ -32,9 +33,9 @@ PRODUCT_PACKAGES += \
     DeskClock \
     DocumentsUI \
     DownloadProviderUi \
-    Email \
     ExactCalculator \
     ExternalStorageProvider \
+    F-Droid \
     FusedLocation \
     InputDevices \
     KeyChain \
