@@ -46,6 +46,7 @@ PRODUCT_PACKAGES += \
     PacProcessor \
     libpac \
     PrintSpooler \
+    Privileged-Extension \
     ProxyHandler \
     Settings \
     SharedStorageBackup \
