@@ -199,7 +199,9 @@ LOCAL_NOTICE_FILE:=
 # to avoid installing the presigned apks with classes.dex unstripped.
 LOCAL_REPLACE_PREBUILT_APK_INSTALLED:=
 LOCAL_NDK_VERSION:=current
+LOCAL_COPY_TO_INTERMEDIATE_LIBRARIES:=
 LOCAL_LOGTAGS_FILES:=
+LOCAL_RECORDED_MODULE_TYPE:=
 
 # arch specific variables
 LOCAL_SRC_FILES_$(TARGET_ARCH):=

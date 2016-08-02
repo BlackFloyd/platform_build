@@ -70,6 +70,9 @@ ifdef LOCAL_SDK_VERSION
     $(error $(LOCAL_PATH): LOCAL_SDK_VERSION cannot be used in host module)
   endif
 
+  # Make sure we've built the NDK.
+  my_additional_dependencies += $(SOONG_OUT_DIR)/ndk.timestamp
+
   # mips32r6 is not supported by the NDK. No released NDK contains these
   # libraries, but the r10 in prebuilts/ndk had a local hack to add them :(
   #
@@ -81,9 +84,31 @@ ifdef LOCAL_SDK_VERSION
     endif
   endif
 
-  my_ndk_source_root := $(HISTORICAL_NDK_VERSIONS_ROOT)/$(LOCAL_NDK_VERSION)/sources
-  my_ndk_sysroot := $(HISTORICAL_NDK_VERSIONS_ROOT)/$(LOCAL_NDK_VERSION)/platforms/android-$(LOCAL_SDK_VERSION)/arch-$(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)
-  my_ndk_sysroot_include := $(my_ndk_sysroot)/usr/include
+  my_arch := $(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)
+  ifneq (,$(filter arm64 mips64 x86_64,$(my_arch)))
+    my_min_sdk_version := 21
+  else
+    my_min_sdk_version := 9
+  endif
+
+  # Historically we've just set up a bunch of symlinks in prebuilts/ndk to map
+  # missing API levels to existing ones where necessary, but we're not doing
+  # that for the generated libraries. Clip the API level to the minimum where
+  # appropriate.
+  my_ndk_api := \
+    $(shell if [ $(LOCAL_SDK_VERSION) -lt $(my_min_sdk_version) ]; then \
+        echo $(my_min_sdk_version); else echo $(LOCAL_SDK_VERSION); fi)
+
+  my_ndk_source_root := \
+      $(HISTORICAL_NDK_VERSIONS_ROOT)/$(LOCAL_NDK_VERSION)/sources
+  my_ndk_sysroot := \
+    $(HISTORICAL_NDK_VERSIONS_ROOT)/$(LOCAL_NDK_VERSION)/platforms/android-$(my_ndk_api)/arch-$(my_arch)
+  my_built_ndk := $(SOONG_OUT_DIR)/ndk
+  my_ndk_triple := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_NDK_TRIPLE)
+  my_ndk_sysroot_include := \
+      $(my_built_ndk)/sysroot/usr/include \
+      $(my_built_ndk)/sysroot/usr/include/$(my_ndk_triple) \
+      $(my_ndk_sysroot)/usr/include \
 
   # x86_64 and and mips64 are both multilib toolchains, so their libraries are
   # installed in /usr/lib64. Aarch64, on the other hand, is not a multilib
@@ -92,13 +117,18 @@ ifdef LOCAL_SDK_VERSION
   # Mips32r6 is yet another variation, with libraries installed in libr6.
   #
   # For the rest, the libraries are installed simply to /usr/lib.
-  ifneq (,$(filter x86_64 mips64,$(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)))
-    my_ndk_sysroot_lib := $(my_ndk_sysroot)/usr/lib64
+  ifneq (,$(filter x86_64 mips64,$(my_arch)))
+    my_ndk_libdir_name := lib64
   else ifeq (mips32r6,$(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH_VARIANT))
-    my_ndk_sysroot_lib := $(my_ndk_sysroot)/usr/libr6
+    my_ndk_libdir_name := libr6
   else
-    my_ndk_sysroot_lib := $(my_ndk_sysroot)/usr/lib
+    my_ndk_libdir_name := lib
   endif
+
+  my_ndk_platform_dir := \
+      $(my_built_ndk)/platforms/android-$(my_ndk_api)/arch-$(my_arch)
+  my_built_ndk_libs := $(my_ndk_platform_dir)/usr/$(my_ndk_libdir_name)
+  my_ndk_sysroot_lib := $(my_ndk_sysroot)/usr/$(my_ndk_libdir_name)
 
   # The bionic linker now has support for packed relocations and gnu style
   # hashes (which are much faster!), but shipping to older devices requires
@@ -180,6 +210,11 @@ ifdef LOCAL_SDK_VERSION
   endif
   endif
   endif
+
+  my_generated_ndk_shared_libraries := \
+      $(filter $(NDK_MIGRATED_LIBS),$(my_system_shared_libraries))
+  my_system_shared_libraries := \
+      $(filter-out $(NDK_MIGRATED_LIBS),$(my_system_shared_libraries))
 endif
 
 # MinGW spits out warnings about -fPIC even for -fpie?!) being ignored because
@@ -337,12 +372,16 @@ my_asflags += -D__ASSEMBLY__
 ###########################################################
 ifndef LOCAL_IS_HOST_MODULE
 ifdef LOCAL_SDK_VERSION
-my_target_project_includes :=
-my_target_c_includes := $(my_ndk_stl_include_path) $(my_ndk_sysroot_include)
+my_target_global_c_includes :=
+my_target_global_c_system_includes := $(my_ndk_stl_include_path) $(my_ndk_sysroot_include)
 my_target_global_cppflags := $(my_ndk_stl_cppflags)
 else
-my_target_project_includes := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_PROJECT_INCLUDES)
-my_target_c_includes := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_C_INCLUDES)
+my_target_global_c_includes := $(SRC_HEADERS) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_PROJECT_INCLUDES) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_C_INCLUDES)
+my_target_global_c_system_includes := $(SRC_SYSTEM_HEADERS) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_PROJECT_SYSTEM_INCLUDES) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_C_SYSTEM_INCLUDES)
 my_target_global_cppflags :=
 endif # LOCAL_SDK_VERSION
 
@@ -358,8 +397,8 @@ my_target_global_cppflags += $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CPPFLAG
 my_target_global_ldflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_LDFLAGS)
 endif # my_clang
 
-$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_PROJECT_INCLUDES := $(my_target_project_includes)
-$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_C_INCLUDES := $(my_target_c_includes)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_GLOBAL_C_INCLUDES := $(my_target_global_c_includes)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_GLOBAL_C_SYSTEM_INCLUDES := $(my_target_global_c_system_includes)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_GLOBAL_CFLAGS := $(my_target_global_cflags)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_GLOBAL_CONLYFLAGS := $(my_target_global_conlyflags)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_GLOBAL_CPPFLAGS := $(my_target_global_cppflags)
@@ -367,21 +406,27 @@ $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_GLOBAL_LDFLAGS := $(my_target_glob
 
 else # LOCAL_IS_HOST_MODULE
 
+my_host_global_c_includes := $(SRC_HEADERS) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)PROJECT_INCLUDES) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)C_INCLUDES)
+my_host_global_c_system_includes := $(SRC_SYSTEM_HEADERS) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)PROJECT_SYSTEM_INCLUDES) \
+    $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)C_SYSTEM_INCLUDES)
+
 ifeq ($(my_clang),true)
 my_host_global_cflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)CLANG_$(my_prefix)GLOBAL_CFLAGS)
 my_host_global_conlyflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)CLANG_$(my_prefix)GLOBAL_CONLYFLAGS)
 my_host_global_cppflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)CLANG_$(my_prefix)GLOBAL_CPPFLAGS)
 my_host_global_ldflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)CLANG_$(my_prefix)GLOBAL_LDFLAGS)
-my_host_c_includes := $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)C_INCLUDES)
 else
 my_host_global_cflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)GLOBAL_CFLAGS)
 my_host_global_conlyflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)GLOBAL_CONLYFLAGS)
 my_host_global_cppflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)GLOBAL_CPPFLAGS)
 my_host_global_ldflags := $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)GLOBAL_LDFLAGS)
-my_host_c_includes := $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)C_INCLUDES)
 endif # my_clang
 
-$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_HOST_C_INCLUDES := $(my_host_c_includes)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_GLOBAL_C_INCLUDES := $(my_host_global_c_includes)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_GLOBAL_C_SYSTEM_INCLUDES := $(my_host_global_c_system_includes)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_HOST_GLOBAL_CFLAGS := $(my_host_global_cflags)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_HOST_GLOBAL_CONLYFLAGS := $(my_host_global_conlyflags)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_HOST_GLOBAL_CPPFLAGS := $(my_host_global_cppflags)
@@ -1355,7 +1400,14 @@ my_system_shared_libraries_fullpath := \
     $(addprefix $(my_ndk_sysroot_lib)/, \
         $(addsuffix $(so_suffix), $(my_system_shared_libraries)))
 
-built_shared_libraries += $(my_system_shared_libraries_fullpath)
+my_built_ndk_shared_libraries_fullpath := \
+    $(addprefix $(my_built_ndk_libs)/,\
+        $(addsuffix $(so_suffix),$(my_generated_ndk_shared_libraries)))
+
+built_shared_libraries += \
+    $(my_built_ndk_shared_libraries_fullpath) \
+    $(my_system_shared_libraries_fullpath) \
+
 else
 built_shared_libraries := \
     $(addprefix $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)OUT_INTERMEDIATE_LIBRARIES)/, \

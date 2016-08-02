@@ -6,6 +6,14 @@ import sys
 import re
 
 parser = argparse.ArgumentParser(description='Convert a build log into HTML')
+parser.add_argument('--gencsv',
+                    help='Generate a CSV file with number of various warnings',
+                    action="store_true",
+                    default=False)
+parser.add_argument('--byproject',
+                    help='Separate warnings in HTML output by project names',
+                    action="store_true",
+                    default=False)
 parser.add_argument('--url',
                     help='Root URL of an Android source code tree prefixed '
                     'before files in warnings')
@@ -119,7 +127,7 @@ warnpatterns = [
         'patterns':[r".*: warning: incompatible implicit declaration of built-in function .+"] },
     { 'category':'C/C++',   'severity':severity.HIGH,     'members':[], 'option':'',
         'description':'Null passed as non-null argument',
-        'patterns':[r".*: warning: Null passed to a callee that requires a non-null argument"] },
+        'patterns':[r".*: warning: Null passed to a callee that requires a non-null"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wunused-parameter',
         'description':'Unused parameter',
         'patterns':[r".*: warning: unused parameter '.*'"] },
@@ -1366,6 +1374,9 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Possible broken line continuation',
         'patterns':[r".*: warning: backslash and newline separated by space"] },
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wundefined-var-template',
+        'description':'Undefined variable template',
+        'patterns':[r".*: warning: instantiation of variable .* no definition is available"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wundefined-inline',
         'description':'Inline function is not defined',
         'patterns':[r".*: warning: inline function '.*' is not defined"] },
@@ -1504,9 +1515,9 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wnon-literal-null-conversion',
         'description':'Zero used as null pointer',
         'patterns':[r".*: warning: expression .* zero treated as a null pointer constant"] },
-    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'-Wliteral-conversion',
+    { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Implicit conversion changes value',
-        'patterns':[r".*: warning: implicit conversion .* changes value from .* to .*literal-conversion"] },
+        'patterns':[r".*: warning: implicit conversion .* changes value from .* to .*-conversion"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,   'members':[], 'option':'',
         'description':'Passing NULL as non-pointer argument',
         'patterns':[r".*: warning: passing NULL to non-pointer argument [0-9]+ of '.+'"] },
@@ -1653,6 +1664,7 @@ warnpatterns = [
     { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
         'description':'Undefined result',
         'patterns':[r".*: warning: The result of .+ is undefined",
+                    r".*: warning: passing an object that .+ has undefined behavior \[-Wvarargs\]",
                     r".*: warning: 'this' pointer cannot be null in well-defined C\+\+ code;",
                     r".*: warning: shifting a negative signed value is undefined"] },
     { 'category':'C/C++',   'severity':severity.MEDIUM,     'members':[], 'option':'',
@@ -1734,8 +1746,17 @@ warnpatterns = [
         'description':'clang-tidy c++ core guidelines',
         'patterns':[r".*: .+\[cppcoreguidelines-.+\]$"] },
     { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
-        'description':'clang-tidy google-runtime',
-        'patterns':[r".*: .+\[google-runtime-.+\]$"] },
+        'description':'clang-tidy google-default-arguments',
+        'patterns':[r".*: .+\[google-default-arguments\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-runtime-int',
+        'patterns':[r".*: .+\[google-runtime-int\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-runtime-operator',
+        'patterns':[r".*: .+\[google-runtime-operator\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google-runtime-references',
+        'patterns':[r".*: .+\[google-runtime-references\]$"] },
     { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
         'description':'clang-tidy google-build',
         'patterns':[r".*: .+\[google-build-.+\]$"] },
@@ -1749,11 +1770,29 @@ warnpatterns = [
         'description':'clang-tidy google-global',
         'patterns':[r".*: .+\[google-global-.+\]$"] },
     { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy google- other',
+        'patterns':[r".*: .+\[google-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
         'description':'clang-tidy modernize',
         'patterns':[r".*: .+\[modernize-.+\]$"] },
     { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
         'description':'clang-tidy misc',
         'patterns':[r".*: .+\[misc-.+\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy performance-faster-string-find',
+        'patterns':[r".*: .+\[performance-faster-string-find\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy performance-for-range-copy',
+        'patterns':[r".*: .+\[performance-for-range-copy\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy performance-implicit-cast-in-loop',
+        'patterns':[r".*: .+\[performance-implicit-cast-in-loop\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy performance-unnecessary-copy-initialization',
+        'patterns':[r".*: .+\[performance-unnecessary-copy-initialization\]$"] },
+    { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
+        'description':'clang-tidy performance-unnecessary-value-param',
+        'patterns':[r".*: .+\[performance-unnecessary-value-param\]$"] },
     { 'category':'C/C++',   'severity':severity.TIDY,     'members':[], 'option':'',
         'description':'clang-tidy CERT',
         'patterns':[r".*: .+\[cert-.+\]$"] },
@@ -1773,6 +1812,63 @@ warnpatterns = [
         'description':'Unclassified/unrecognized warnings',
         'patterns':[r".*: warning: .+"] },
 ]
+
+# A list of [project_name, file_path_pattern].
+# project_name should not contain comma, to be used in CSV output.
+projectlist = [
+    ['art',                 r"(^|.*/)art/.*: warning:"],
+    ['bionic',              r"(^|.*/)bionic/.*: warning:"],
+    ['bootable',            r"(^|.*/)bootable/.*: warning:"],
+    ['build',               r"(^|.*/)build/.*: warning:"],
+    ['cts',                 r"(^|.*/)cts/.*: warning:"],
+    ['dalvik',              r"(^|.*/)dalvik/.*: warning:"],
+    ['developers',          r"(^|.*/)developers/.*: warning:"],
+    ['development',         r"(^|.*/)development/.*: warning:"],
+    ['device',              r"(^|.*/)device/.*: warning:"],
+    ['doc',                 r"(^|.*/)doc/.*: warning:"],
+    # match external/google* before external/
+    ['external/google',     r"(^|.*/)external/google.*: warning:"],
+    ['external/non-google', r"(^|.*/)external/.*: warning:"],
+    ['frameworks',          r"(^|.*/)frameworks/.*: warning:"],
+    ['hardware',            r"(^|.*/)hardware/.*: warning:"],
+    ['kernel',              r"(^|.*/)kernel/.*: warning:"],
+    ['libcore',             r"(^|.*/)libcore/.*: warning:"],
+    ['libnativehelper',      r"(^|.*/)libnativehelper/.*: warning:"],
+    ['ndk',                 r"(^|.*/)ndk/.*: warning:"],
+    ['packages',            r"(^|.*/)packages/.*: warning:"],
+    ['pdk',                 r"(^|.*/)pdk/.*: warning:"],
+    ['prebuilts',           r"(^|.*/)prebuilts/.*: warning:"],
+    ['system',              r"(^|.*/)system/.*: warning:"],
+    ['toolchain',           r"(^|.*/)toolchain/.*: warning:"],
+    ['test',                r"(^|.*/)test/.*: warning:"],
+    ['tools',               r"(^|.*/)tools/.*: warning:"],
+    # match vendor/google* before vendor/
+    ['vendor/google',       r"(^|.*/)vendor/google.*: warning:"],
+    ['vendor/non-google',   r"(^|.*/)vendor/.*: warning:"],
+    # keep out/obj and other patterns at the end.
+    ['out/obj', r".*/(gen|obj[^/]*)/(include|EXECUTABLES|SHARED_LIBRARIES|STATIC_LIBRARIES)/.*: warning:"],
+    ['other',   r".*: warning:"],
+]
+
+projectpatterns = []
+for p in projectlist:
+    projectpatterns.append({'description':p[0], 'members':[], 'pattern':re.compile(p[1])})
+
+# Each warning pattern has 3 dictionaries:
+# (1) 'projects' maps a project name to number of warnings in that project.
+# (2) 'projectanchor' maps a project name to its anchor number for HTML.
+# (3) 'projectwarning' maps a project name to a list of warning of that project.
+for w in warnpatterns:
+    w['projects'] = {}
+    w['projectanchor'] = {}
+    w['projectwarning'] = {}
+
+platformversion = 'unknown'
+targetproduct = 'unknown'
+targetvariant = 'unknown'
+
+
+##### Data and functions to dump html file. ##################################
 
 anchor = 0
 cur_row_class = 0
@@ -1822,7 +1918,6 @@ def dumphtmlprologue(title):
     output('<title>' + title + '</title>\n')
     output(html_script_style)
     output('</head>\n<body>\n')
-    output('<a name="PageTop">')
     output(htmlbig(title))
     output('<p>\n')
 
@@ -1836,12 +1931,16 @@ def tablerow(text):
     output(text)
     output('</td></tr>')
 
+def sortwarnings():
+    for i in warnpatterns:
+        i['members'] = sorted(set(i['members']))
+
 # dump some stats about total number of warnings and such
 def dumpstats():
     known = 0
     unknown = 0
+    sortwarnings()
     for i in warnpatterns:
-        i['members'] = sorted(set(i['members']))
         if i['severity'] == severity.UNKNOWN:
             unknown += len(i['members'])
         elif i['severity'] != severity.SKIP:
@@ -1867,17 +1966,12 @@ def dumpseverity(sev):
     output('<blockquote>\n')
     for i in warnpatterns:
       if i['severity'] == sev and len(i['members']) > 0:
-          output('\n<table frame="box">\n')
           anchor += 1
           i['anchor'] = str(anchor)
-          mark = str(anchor) + '_mark'
-          output('<tr bgcolor="' + colorforseverity(sev) + '">' +
-                 '<td><button class="bt" id="' + mark +
-                 '" onclick="expand(\'' + str(anchor) + '\');">' +
-                 '&#x2295</button> ' + descriptionfor(i) +
-                 ' (' + str(len(i['members'])) + ')</td></tr>\n')
-          output('</table>\n')
-          dumpcategory(i)
+          if args.byproject:
+              dumpcategorybyproject(sev, i)
+          else:
+              dumpcategory(sev, i)
     output('</blockquote>\n')
 
 def allpatterns(cat):
@@ -1932,31 +2026,69 @@ def warningwithurl(line):
     else:
         return '<a href="' + args.url + '/' + filepath + '">' + filepath + '</a>:' + linenumber + ':' + warning
 
-# dump a category, provided it is not marked as 'SKIP' and has more than 0 occurrences
-def dumpcategory(cat):
-    if cat['severity'] != severity.SKIP and len(cat['members']) != 0:
-        header = [descriptionfor(cat),str(len(cat['members'])) + ' occurences:']
-        if cat['option'] != '':
-            header[1:1] = [' (related option: ' + cat['option'] +')']
+def dumpgroup(sev, anchor, description, warnings):
+    mark = anchor + '_mark'
+    output('\n<table frame="box">\n')
+    output('<tr bgcolor="' + colorforseverity(sev) + '">' +
+           '<td><button class="bt" id="' + mark +
+           '" onclick="expand(\'' + anchor + '\');">' +
+           '&#x2295</button> ' + description + '</td></tr>\n')
+    output('</table>\n')
+    output('<div id="' + anchor + '" style="display:none;">')
+    output('<table>\n')
+    for i in warnings:
+        tablerow(warningwithurl(i))
+    output('</table></div>\n')
 
-        output('<div id="' + cat['anchor'] + '" style="display:none;">')
-        output('<table>\n')
-        for i in cat['members']:
-            tablerow(warningwithurl(i))
-        output('</table></div>\n')
+# dump warnings in a category
+def dumpcategory(sev, cat):
+    description = descriptionfor(cat) + ' (' + str(len(cat['members'])) + ')'
+    dumpgroup(sev, cat['anchor'], description, cat['members'])
 
+# similar to dumpcategory but output one table per project.
+def dumpcategorybyproject(sev, cat):
+    warning = descriptionfor(cat)
+    projects = cat['projectwarning'].keys()
+    projects.sort()
+    for p in projects:
+        anchor = cat['projectanchor'][p]
+        projectwarnings = cat['projectwarning'][p]
+        description = '{}, in {} ({})'.format(warning, p, len(projectwarnings))
+        dumpgroup(sev, anchor, description, projectwarnings)
+
+def findproject(line):
+    for p in projectpatterns:
+        if p['pattern'].match(line):
+            return p['description']
+    return '???'
 
 def classifywarning(line):
+    global anchor
     for i in warnpatterns:
         for cpat in i['compiledpatterns']:
             if cpat.match(line):
                 i['members'].append(line)
+                pname = findproject(line)
+                # Count warnings by project.
+                if pname in i['projects']:
+                    i['projects'][pname] += 1
+                else:
+                    i['projects'][pname] = 1
+                # Collect warnings by project.
+                if args.byproject:
+                    if pname in i['projectwarning']:
+                        i['projectwarning'][pname].append(line)
+                    else:
+                        i['projectwarning'][pname] = [line]
+                    if pname not in i['projectanchor']:
+                        anchor += 1
+                        i['projectanchor'][pname] = str(anchor)
                 return
-    else:
-        # If we end up here, there was a problem parsing the log
-        # probably caused by 'make -j' mixing the output from
-        # 2 or more concurrent compiles
-        pass
+            else:
+                # If we end up here, there was a problem parsing the log
+                # probably caused by 'make -j' mixing the output from
+                # 2 or more concurrent compiles
+                pass
 
 # precompiling every pattern speeds up parsing by about 30x
 def compilepatterns():
@@ -1965,54 +2097,103 @@ def compilepatterns():
         for pat in i['patterns']:
             i['compiledpatterns'].append(re.compile(pat))
 
-infile = open(args.buildlog, 'r')
-warnings = []
+def parseinputfile():
+    global platformversion
+    global targetproduct
+    global targetvariant
+    infile = open(args.buildlog, 'r')
+    linecounter = 0
 
-platformversion = 'unknown'
-targetproduct = 'unknown'
-targetvariant = 'unknown'
-linecounter = 0
+    warningpattern = re.compile('.* warning:.*')
+    compilepatterns()
 
-warningpattern = re.compile('.* warning:.*')
-compilepatterns()
-
-# read the log file and classify all the warnings
-lastmatchedline = ''
-for line in infile:
-    # replace fancy quotes with plain ol' quotes
-    line = line.replace("‘", "'");
-    line = line.replace("’", "'");
-    if warningpattern.match(line):
-        if line != lastmatchedline:
-            classifywarning(line)
-            lastmatchedline = line
-    else:
-        # save a little bit of time by only doing this for the first few lines
-        if linecounter < 50:
-            linecounter +=1
-            m = re.search('(?<=^PLATFORM_VERSION=).*', line)
-            if m != None:
-                platformversion = m.group(0)
-            m = re.search('(?<=^TARGET_PRODUCT=).*', line)
-            if m != None:
-                targetproduct = m.group(0)
-            m = re.search('(?<=^TARGET_BUILD_VARIANT=).*', line)
-            if m != None:
-                targetvariant = m.group(0)
+    # read the log file and classify all the warnings
+    warninglines = set()
+    for line in infile:
+        # replace fancy quotes with plain ol' quotes
+        line = line.replace("‘", "'");
+        line = line.replace("’", "'");
+        if warningpattern.match(line):
+            if line not in warninglines:
+                classifywarning(line)
+                warninglines.add(line)
+        else:
+            # save a little bit of time by only doing this for the first few lines
+            if linecounter < 50:
+                linecounter +=1
+                m = re.search('(?<=^PLATFORM_VERSION=).*', line)
+                if m != None:
+                    platformversion = m.group(0)
+                m = re.search('(?<=^TARGET_PRODUCT=).*', line)
+                if m != None:
+                    targetproduct = m.group(0)
+                m = re.search('(?<=^TARGET_BUILD_VARIANT=).*', line)
+                if m != None:
+                    targetvariant = m.group(0)
 
 
 # dump the html output to stdout
-dumphtmlprologue('Warnings for ' + platformversion + ' - ' + targetproduct + ' - ' + targetvariant)
-dumpstats()
-# sort table based on number of members once dumpstats has deduplicated the
-# members.
-warnpatterns.sort(reverse=True, key=lambda i: len(i['members']))
-dumpseverity(severity.FIXMENOW)
-dumpseverity(severity.HIGH)
-dumpseverity(severity.MEDIUM)
-dumpseverity(severity.LOW)
-dumpseverity(severity.TIDY)
-dumpseverity(severity.HARMLESS)
-dumpseverity(severity.UNKNOWN)
-dumpfixed()
-dumphtmlepilogue()
+def dumphtml():
+    dumphtmlprologue('Warnings for ' + platformversion + ' - ' + targetproduct + ' - ' + targetvariant)
+    dumpstats()
+    # sort table based on number of members once dumpstats has deduplicated the
+    # members.
+    warnpatterns.sort(reverse=True, key=lambda i: len(i['members']))
+    dumpseverity(severity.FIXMENOW)
+    dumpseverity(severity.HIGH)
+    dumpseverity(severity.MEDIUM)
+    dumpseverity(severity.LOW)
+    dumpseverity(severity.TIDY)
+    dumpseverity(severity.HARMLESS)
+    dumpseverity(severity.UNKNOWN)
+    dumpfixed()
+    dumphtmlepilogue()
+
+
+##### Functions to count warnings and dump csv file. #########################
+
+def descriptionforcsv(cat):
+    if cat['description'] == '':
+        return '?'
+    return cat['description']
+
+def stringforcsv(s):
+    if ',' in s:
+        return '"{}"'.format(s)
+    return s
+
+def countseverity(sev, kind):
+  sum = 0
+  for i in warnpatterns:
+      if i['severity'] == sev and len(i['members']) > 0:
+          n = len(i['members'])
+          sum += n
+          warning = stringforcsv(kind + ': ' + descriptionforcsv(i))
+          print '{},,{}'.format(n, warning)
+          # print number of warnings for each project, ordered by project name.
+          projects = i['projects'].keys()
+          projects.sort()
+          for p in projects:
+              print '{},{},{}'.format(i['projects'][p], p, warning)
+  print '{},,{}'.format(sum, kind + ' warnings')
+  return sum
+
+# dump number of warnings in csv format to stdout
+def dumpcsv():
+    sortwarnings()
+    total = 0
+    total += countseverity(severity.FIXMENOW, 'FixNow')
+    total += countseverity(severity.HIGH, 'High')
+    total += countseverity(severity.MEDIUM, 'Medium')
+    total += countseverity(severity.LOW, 'Low')
+    total += countseverity(severity.TIDY, 'Tidy')
+    total += countseverity(severity.HARMLESS, 'Harmless')
+    total += countseverity(severity.UNKNOWN, 'Unknown')
+    print '{},,{}'.format(total, 'All warnings')
+
+
+parseinputfile()
+if args.gencsv:
+    dumpcsv()
+else:
+    dumphtml()

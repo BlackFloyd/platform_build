@@ -95,6 +95,9 @@ TARGET_DISPLAY := target
 HOST_DISPLAY := host
 HOST_CROSS_DISPLAY := host cross
 
+# All installed initrc files
+ALL_INIT_RC_INSTALLED_PAIRS :=
+
 ###########################################################
 ## Debugging; prints a variable list to stdout
 ###########################################################
@@ -1149,19 +1152,27 @@ $(hide) $(DBUS_GENERATOR) \
 	$(filter %.dbus-xml,$^)
 endef
 
+###########################################################
+## Helper to set include paths form transform-*-to-o
+###########################################################
+define c-includes
+$(addprefix -I , $(PRIVATE_C_INCLUDES)) \
+$$(cat $(PRIVATE_IMPORT_INCLUDES))\
+$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),,\
+    $(addprefix -I ,\
+        $(filter-out $(PRIVATE_C_INCLUDES), \
+            $(PRIVATE_GLOBAL_C_INCLUDES))) \
+    $(addprefix -isystem ,\
+        $(filter-out $(PRIVATE_C_INCLUDES), \
+            $(PRIVATE_GLOBAL_C_SYSTEM_INCLUDES))))
+endef
 
 ###########################################################
 ## Commands for running gcc to compile a C++ file
 ###########################################################
 
 define transform-cpp-to-o-compiler-args
-	$(addprefix -I , $(PRIVATE_C_INCLUDES)) \
-	$$(cat $(PRIVATE_IMPORT_INCLUDES)) \
-	$(addprefix -isystem ,\
-	    $(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	        $(filter-out $(PRIVATE_C_INCLUDES), \
-	            $(PRIVATE_TARGET_PROJECT_INCLUDES) \
-	            $(PRIVATE_TARGET_C_INCLUDES)))) \
+	$(c-includes) \
 	-c \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
 	    $(PRIVATE_TARGET_GLOBAL_CFLAGS) \
@@ -1207,13 +1218,7 @@ endif
 
 # $(1): extra flags
 define transform-c-or-s-to-o-compiler-args
-	$(addprefix -I , $(PRIVATE_C_INCLUDES)) \
-	$$(cat $(PRIVATE_IMPORT_INCLUDES)) \
-	$(addprefix -isystem ,\
-	    $(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	        $(filter-out $(PRIVATE_C_INCLUDES), \
-	            $(PRIVATE_TARGET_PROJECT_INCLUDES) \
-	            $(PRIVATE_TARGET_C_INCLUDES)))) \
+	$(c-includes) \
 	-c \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
 	    $(PRIVATE_TARGET_GLOBAL_CFLAGS) \
@@ -1299,13 +1304,7 @@ endef
 ###########################################################
 
 define transform-host-cpp-to-o-compiler-args
-	$(addprefix -I , $(PRIVATE_C_INCLUDES)) \
-	$$(cat $(PRIVATE_IMPORT_INCLUDES)) \
-	$(addprefix -isystem ,\
-	    $(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	        $(filter-out $(PRIVATE_C_INCLUDES), \
-	            $($(PRIVATE_PREFIX)PROJECT_INCLUDES) \
-	            $(PRIVATE_HOST_C_INCLUDES)))) \
+	$(c-includes) \
 	-c \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
 	    $(PRIVATE_HOST_GLOBAL_CFLAGS) \
@@ -1348,13 +1347,7 @@ endif
 ###########################################################
 
 define transform-host-c-or-s-to-o-common-args
-	$(addprefix -I , $(PRIVATE_C_INCLUDES)) \
-	$$(cat $(PRIVATE_IMPORT_INCLUDES)) \
-	$(addprefix -isystem ,\
-	    $(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	        $(filter-out $(PRIVATE_C_INCLUDES), \
-	            $($(PRIVATE_PREFIX)PROJECT_INCLUDES) \
-	            $(PRIVATE_HOST_C_INCLUDES)))) \
+	$(c-includes) \
 	-c \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
 	    $(PRIVATE_HOST_GLOBAL_CFLAGS) \
@@ -1702,7 +1695,7 @@ $(hide) $(PRIVATE_CXX) \
 	$(PRIVATE_TARGET_LIBGCC) \
 	$(PRIVATE_TARGET_GLOBAL_LDFLAGS) \
 	$(PRIVATE_LDFLAGS) \
-	$(call normalize-target-libraries,$(PRIVATE_ALL_SHARED_LIBRARIES)) \
+	$(PRIVATE_ALL_SHARED_LIBRARIES) \
 	-o $@ \
 	$(PRIVATE_TARGET_CRTEND_SO_O) \
 	$(PRIVATE_LDLIBS)
@@ -1790,7 +1783,7 @@ $(hide) $(PRIVATE_CXX) -pie \
 	$(PRIVATE_TARGET_LIBGCC) \
 	$(PRIVATE_TARGET_GLOBAL_LDFLAGS) \
 	$(PRIVATE_LDFLAGS) \
-	$(call normalize-target-libraries,$(PRIVATE_ALL_SHARED_LIBRARIES)) \
+	$(PRIVATE_ALL_SHARED_LIBRARIES) \
 	-o $@ \
 	$(PRIVATE_TARGET_CRTEND_O) \
 	$(PRIVATE_LDLIBS)
@@ -2848,6 +2841,48 @@ endef
 define get-prebuilt-src-arch
 $(strip $(if $(filter $(TARGET_ARCH),$(1)),$(TARGET_ARCH),\
   $(if $(filter $(TARGET_2ND_ARCH),$(1)),$(TARGET_2ND_ARCH),$(if $(1),none))))
+endef
+
+# ###############################################################
+# Set up statistics gathering
+# ###############################################################
+STATS.MODULE_TYPE := \
+  HOST_STATIC_LIBRARY \
+  HOST_SHARED_LIBRARY \
+  STATIC_LIBRARY \
+  SHARED_LIBRARY \
+  EXECUTABLE \
+  HOST_EXECUTABLE \
+  PACKAGE \
+  PHONY_PACKAGE \
+  HOST_PREBUILT \
+  PREBUILT \
+  MULTI_PREBUILT \
+  JAVA_LIBRARY \
+  STATIC_JAVA_LIBRARY \
+  HOST_JAVA_LIBRARY \
+  DROIDDOC \
+  COPY_HEADERS \
+  NATIVE_TEST \
+  NATIVE_BENCHMARK \
+  HOST_NATIVE_TEST \
+  FUZZ_TEST \
+  HOST_FUZZ_TEST \
+  STATIC_TEST_LIBRARY \
+  HOST_STATIC_TEST_LIBRARY \
+  NOTICE_FILE \
+  HOST_DALVIK_JAVA_LIBRARY \
+  HOST_DALVIK_STATIC_JAVA_LIBRARY \
+  base_rules
+
+$(foreach $(s),$(STATS.MODULE_TYPE),$(eval STATS.MODULE_TYPE.$(s) :=))
+define record-module-type
+$(strip $(if $(LOCAL_RECORDED_MODULE_TYPE),,
+  $(if $(filter-out $(SOONG_ANDROID_MK),$(LOCAL_MODULE_MAKEFILE)),
+    $(if $(filter $(1),$(STATS.MODULE_TYPE)),
+      $(eval LOCAL_RECORDED_MODULE_TYPE := true)
+        $(eval STATS.MODULE_TYPE.$(1) += 1),
+      $(error Invalid module type: $(1))))))
 endef
 
 ###########################################################
