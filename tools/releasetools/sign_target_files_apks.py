@@ -232,11 +232,13 @@ def ProcessTargetFiles(input_tf_zip, output_tf_zip, misc_info,
     elif info.filename in ("SYSTEM/build.prop",
                            "VENDOR/build.prop",
                            "BOOT/RAMDISK/default.prop",
+                           "ROOT/default.prop",
                            "RECOVERY/RAMDISK/default.prop"):
       print "rewriting %s:" % (info.filename,)
       new_data = RewriteProps(data, misc_info)
       common.ZipWriteStr(output_tf_zip, out_info, new_data)
       if info.filename in ("BOOT/RAMDISK/default.prop",
+                           "ROOT/default.prop",
                            "RECOVERY/RAMDISK/default.prop"):
         write_to_temp(info.filename, info.external_attr, new_data)
 
@@ -255,6 +257,7 @@ def ProcessTargetFiles(input_tf_zip, output_tf_zip, misc_info,
     elif (OPTIONS.replace_ota_keys and
           info.filename in (
               "BOOT/RAMDISK/res/keys",
+              "BOOT/RAMDISK/etc/update_engine/update-payload-key.pub.pem",
               "RECOVERY/RAMDISK/res/keys",
               "SYSTEM/etc/security/otacerts.zip",
               "SYSTEM/etc/update_engine/update-payload-key.pub.pem")):
@@ -274,6 +277,10 @@ def ProcessTargetFiles(input_tf_zip, output_tf_zip, misc_info,
     # Skip verity keyid (for system_root_image use) if we will replace it.
     elif (OPTIONS.replace_verity_keyid and
           info.filename == "BOOT/cmdline"):
+      pass
+
+    # Skip the care_map as we will regenerate the system/vendor images.
+    elif (info.filename == "META/care_map.txt"):
       pass
 
     # Copy BOOT/, RECOVERY/, META/, ROOT/ to rebuild recovery patch. This case
@@ -509,6 +516,10 @@ def ReplaceOtaKeys(input_tf_zip, output_tf_zip, misc_info):
     common.ZipWriteStr(
         output_tf_zip,
         "SYSTEM/etc/update_engine/update-payload-key.pub.pem",
+        pubkey)
+    common.ZipWriteStr(
+        output_tf_zip,
+        "BOOT/RAMDISK/etc/update_engine/update-payload-key.pub.pem",
         pubkey)
 
   return new_recovery_keys

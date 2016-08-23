@@ -70,6 +70,8 @@ CLEAR_VARS:= $(BUILD_SYSTEM)/clear_vars.mk
 BUILD_HOST_STATIC_LIBRARY:= $(BUILD_SYSTEM)/host_static_library.mk
 BUILD_HOST_SHARED_LIBRARY:= $(BUILD_SYSTEM)/host_shared_library.mk
 BUILD_STATIC_LIBRARY:= $(BUILD_SYSTEM)/static_library.mk
+BUILD_AUX_STATIC_LIBRARY:= $(BUILD_SYSTEM)/aux_static_library.mk
+BUILD_AUX_EXECUTABLE:= $(BUILD_SYSTEM)/aux_executable.mk
 BUILD_SHARED_LIBRARY:= $(BUILD_SYSTEM)/shared_library.mk
 BUILD_EXECUTABLE:= $(BUILD_SYSTEM)/executable.mk
 BUILD_HOST_EXECUTABLE:= $(BUILD_SYSTEM)/host_executable.mk
@@ -469,6 +471,9 @@ BCC_COMPAT := $(HOST_OUT_EXECUTABLES)/bcc_compat
 
 DX := $(HOST_OUT_EXECUTABLES)/dx
 MAINDEXCLASSES := $(HOST_OUT_EXECUTABLES)/mainDexClasses
+
+SOONG_ZIP := $(SOONG_HOST_OUT_EXECUTABLES)/soong_zip
+ZIP2ZIP := $(SOONG_HOST_OUT_EXECUTABLES)/zip2zip
 
 # Always use prebuilts for ckati and makeparallel
 prebuilt_build_tools := prebuilts/build-tools

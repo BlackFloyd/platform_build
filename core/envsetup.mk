@@ -20,7 +20,7 @@ include $(BUILD_SYSTEM)/version_defaults.mk
 # people who haven't re-run those will have to do so before they
 # can build.  Make sure to also update the corresponding value in
 # buildspec.mk.default and envsetup.sh.
-CORRECT_BUILD_ENV_SEQUENCE_NUMBER := 11
+CORRECT_BUILD_ENV_SEQUENCE_NUMBER := 12
 
 # ---------------------------------------------------------------
 # The product defaults to generic on hardware
@@ -272,6 +272,9 @@ HOST_OUT_INTERMEDIATE_LIBRARIES := $(HOST_OUT_INTERMEDIATES)/lib
 HOST_OUT_NOTICE_FILES := $(HOST_OUT_INTERMEDIATES)/NOTICE_FILES
 HOST_OUT_COMMON_INTERMEDIATES := $(HOST_COMMON_OUT_ROOT)/obj
 HOST_OUT_FAKE := $(HOST_OUT)/fake_packages
+
+# Nano environment config
+include $(BUILD_SYSTEM)/aux_config.mk
 
 HOST_CROSS_OUT_INTERMEDIATES := $(HOST_CROSS_OUT)/obj
 HOST_CROSS_OUT_HEADERS := $(HOST_CROSS_OUT_INTERMEDIATES)/include

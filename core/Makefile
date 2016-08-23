@@ -284,7 +284,7 @@ endif
 # -----------------------------------------------------------------
 # vendor build.prop
 #
-# For verifying that the vendor build is what we thing it is
+# For verifying that the vendor build is what we think it is
 ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
 INSTALLED_VENDOR_BUILD_PROP_TARGET := $(TARGET_OUT_VENDOR)/build.prop
 ALL_DEFAULT_INSTALLED_MODULES += $(INSTALLED_VENDOR_BUILD_PROP_TARGET)
@@ -776,6 +776,10 @@ $(TARGET_OUT_ETC)/update_engine/update-payload-key.pub.pem: $(addsuffix .x509.pe
 	$(hide) rm -f $@
 	$(hide) mkdir -p $(dir $@)
 	$(hide) openssl x509 -pubkey -noout -in $< > $@
+
+ALL_DEFAULT_INSTALLED_MODULES += $(TARGET_RECOVERY_ROOT_OUT)/etc/update_engine/update-payload-key.pub.pem
+$(TARGET_RECOVERY_ROOT_OUT)/etc/update_engine/update-payload-key.pub.pem: $(TARGET_OUT_ETC)/update_engine/update-payload-key.pub.pem
+	$(hide) cp -f $< $@
 endif
 endif
 
@@ -1424,6 +1428,8 @@ $(INSTALLED_USERDATATARBALL_TARGET): PRIVATE_USERDATA_TAR := $(userdata_tar)
 $(INSTALLED_USERDATATARBALL_TARGET): $(FS_GET_STATS) $(INTERNAL_USERDATAIMAGE_FILES)
 	$(build-userdatatarball-target)
 
+$(call dist-for-goals,userdatatarball,$(INSTALLED_USERDATATARBALL_TARGET))
+
 .PHONY: userdatatarball-nodeps
 userdatatarball-nodeps: $(FS_GET_STATS)
 	$(build-userdatatarball-target)
@@ -1434,10 +1440,11 @@ userdatatarball-nodeps: $(FS_GET_STATS)
 ifdef BOARD_BPT_INPUT_FILES
 
 BUILT_BPTIMAGE_TARGET := $(PRODUCT_OUT)/partition-table.img
+BUILT_BPTJSON_TARGET := $(PRODUCT_OUT)/partition-table.bpt
 
 INTERNAL_BVBTOOL_MAKE_TABLE_ARGS := \
 	--output_gpt $(BUILT_BPTIMAGE_TARGET) \
-	--output_json $(PRODUCT_OUT)/partition-table.bpt \
+	--output_json $(BUILT_BPTJSON_TARGET) \
 	$(foreach file, $(BOARD_BPT_INPUT_FILES), --input $(file))
 
 ifdef BOARD_BPT_DISK_SIZE
@@ -1450,6 +1457,9 @@ define build-bptimage-target
 endef
 
 INSTALLED_BPTIMAGE_TARGET := $(BUILT_BPTIMAGE_TARGET)
+$(BUILT_BPTJSON_TARGET): $(INSTALLED_BPTIMAGE_TARGET)
+	$(hide) touch -c $(BUILT_BPTJSON_TARGET)
+
 $(INSTALLED_BPTIMAGE_TARGET): $(BPTTOOL) $(BOARD_BPT_INPUT_FILES)
 	$(build-bptimage-target)
 
@@ -1729,11 +1739,12 @@ $(BUILT_TARGET_FILES_PACKAGE): \
 		$(INSTALLED_ANDROID_INFO_TXT_TARGET) \
 		$(SELINUX_FC) \
 		$(APKCERTS_FILE) \
+		$(SOONG_ZIP) \
 		$(HOST_OUT_EXECUTABLES)/fs_config \
 		build/tools/releasetools/add_img_to_target_files \
 		| $(ACP)
 	@echo "Package target files: $@"
-	$(hide) rm -rf $@ $(zip_root)
+	$(hide) rm -rf $@ $@.list $(zip_root)
 	$(hide) mkdir -p $(dir $@) $(zip_root)
 ifneq (,$(INSTALLED_RECOVERYIMAGE_TARGET)$(filter true,$(BOARD_USES_RECOVERY_AS_BOOT)))
 	@# Components of the recovery image
@@ -1925,9 +1936,9 @@ ifdef BOARD_PREBUILT_VENDORIMAGE
 endif
 	@# Zip everything up, preserving symlinks and placing META/ files first to
 	@# help early validation of the .zip file while uploading it.
-	$(hide) (cd $(zip_root) && \
-	        zip -qryX ../$(notdir $@) ./META && \
-	        zip -qryXu ../$(notdir $@) .)
+	$(hide) find $(zip_root)/META | sort >$@.list
+	$(hide) find $(zip_root) | grep -v "^$(zip_root)/META/" | sort >>$@.list
+	$(hide) $(SOONG_ZIP) -d -o $@ -C $(zip_root) -l $@.list
 	@# Run fs_config on all the system, vendor, boot ramdisk,
 	@# and recovery ramdisk files in the zip, and save the output
 	$(hide) zipinfo -1 $@ | awk 'BEGIN { FS="SYSTEM/" } /^SYSTEM\// {print "system/" $$2}' | $(HOST_OUT_EXECUTABLES)/fs_config -C -D $(TARGET_OUT) -S $(SELINUX_FC) > $(zip_root)/META/filesystem_config.txt
@@ -1991,13 +2002,10 @@ name := $(name)-img-$(FILE_NAME_TAG)
 
 INTERNAL_UPDATE_PACKAGE_TARGET := $(PRODUCT_OUT)/$(name).zip
 
-$(INTERNAL_UPDATE_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) \
-		build/tools/releasetools/img_from_target_files
+$(INTERNAL_UPDATE_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(ZIP2ZIP)
 	@echo "Package: $@"
-	$(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
-	   ./build/tools/releasetools/img_from_target_files -v \
-	   -p $(HOST_OUT) \
-	   $(BUILT_TARGET_FILES_PACKAGE) $@
+	$(hide) $(ZIP2ZIP) -i $(BUILT_TARGET_FILES_PACKAGE) -o $@ \
+	   OTA/android-info.txt:android-info.txt "IMAGES/*.img:."
 
 .PHONY: updatepackage
 updatepackage: $(INTERNAL_UPDATE_PACKAGE_TARGET)
@@ -2021,11 +2029,13 @@ $(SYMBOLS_ZIP): $(INSTALLED_SYSTEMIMAGE) \
 		$(INSTALLED_VENDORIMAGE_TARGET) \
 		$(updater_dep)
 endif
-$(SYMBOLS_ZIP):
+$(SYMBOLS_ZIP): PRIVATE_LIST_FILE := $(call intermediates-dir-for,PACKAGING,symbols)/filelist
+$(SYMBOLS_ZIP): $(SOONG_ZIP)
 	@echo "Package symbols: $@"
-	$(hide) rm -rf $@
-	$(hide) mkdir -p $(dir $@) $(TARGET_OUT_UNSTRIPPED)
-	$(hide) zip -qrX $@ $(TARGET_OUT_UNSTRIPPED)
+	$(hide) rm -rf $@ $(PRIVATE_LIST_FILE)
+	$(hide) mkdir -p $(dir $@) $(TARGET_OUT_UNSTRIPPED) $(dir $(PRIVATE_LIST_FILE))
+	$(hide) find $(TARGET_OUT_UNSTRIPPED) | sort >$(PRIVATE_LIST_FILE)
+	$(hide) $(SOONG_ZIP) -d -o $@ -C $(TARGET_OUT_UNSTRIPPED) -l $(PRIVATE_LIST_FILE)
 
 # -----------------------------------------------------------------
 # A zip of the Android Apps. Not keeping full path so that we don't
